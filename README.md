@@ -25,3 +25,11 @@ sudo apt install curl software-properties-common apt-transport-https python3-pip
 pip install ansible --user --break-system-package
 echo 'export PATH=/home/service/.local/bin:${PATH}' >> /home/service/.bashrc
 ```
+
+4. Setup git
+```bash
+git config --global init.defaultBranch main
+git config --global user.name <username>
+git config --global user.email <e-mail>
+git clone https://github.com/tiborauer/ansible-openstack
+```
