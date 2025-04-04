@@ -2,6 +2,10 @@
 
 ## Seed VM
 
+Ansible requires a Linux machine as a control. The repo assumes that you are on
+an Ubuntu machine with user "service". The simplest way to achieve this is 
+using WSL.
+
 1. Passwordless sudo
 
     ```bash
