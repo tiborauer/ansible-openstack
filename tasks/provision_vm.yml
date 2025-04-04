@@ -1,0 +1,199 @@
+- name: Provision
+  connection: local
+  become: false
+  block:
+    - name: Dependency for OpenStack
+      run_once: true
+      ansible.builtin.pip:
+        name: openstacksdk
+        extra_args: "--user --break-system-package"
+
+    - name: Get suitable flavours
+      openstack.cloud.compute_flavor_info:
+        # ca_cert: /etc/ssl/certs/ca.pem
+        validate_certs: false
+        vcpus: "{{ vm_cpu }}" 
+        ram: "{{ vm_memory }}"
+      register: res_flavours
+      failed_when: res_flavours.flavors | length == 0
+    
+    - name: Get suitable images
+      openstack.cloud.image_info:
+        # ca_cert: /etc/ssl/certs/ca.pem
+        validate_certs: false
+      register: res_images
+      failed_when: res_images.images | length == 0
+
+    - ansible.builtin.set_fact:
+        vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
+        vm_flavour: "{{ (res_flavours.flavors | first).name }}"
+
+    - name: Provision VM
+      when: false
+      throttle: 1
+      block:
+        - name: "Provision {{ vm_image }} on a(n) {{ vm_flavour }} machine"
+          openstack.cloud.server:
+            # ca_cert: /etc/ssl/certs/ca.pem
+            validate_certs: false
+            name: "{{ ansible_host }}"
+            flavor: "{{ vm_flavour }}"
+            image: "{{ vm_image }}"
+            network: "{{ openstack.network }}"
+            security_groups: "{{ ['default'] + vm_securitygroups }}"
+            key_name: "{{ openstack.initial_key }}"
+          register: res_vm
+    
+        - name: "{{ ansible_host }} in /etc/hosts"
+          become: true
+          ansible.builtin.lineinfile:
+            path: "/etc/hosts"
+            search_string: "{{ ansible_host }}"
+            line: "{{ res_vm.server.addresses[openstack.network][0].addr }} {{ ansible_host }}"
+            insertbefore: '^\n'
+            firstmatch: true
+            state: "{{ vm_state }}"
+
+        - name: End play
+          ansible.builtin.meta: end_host
+          when: vm_state == "absent"
+
+        - name: Check VM's IP address
+          ansible.builtin.debug:
+            msg: "VM {{ ansible_host }} is {{ vm_state }} at {{ res_vm.server.addresses[openstack.network][0].addr }}"
+
+        - name: known_hosts exists
+          ansible.builtin.file:
+            path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+            owner: "{{ service_account.username }}"
+            group: "{{ service_account.username }}"
+            mode: "0600"
+            state: touch
+
+        - name: known_hosts.old do not exist
+          ansible.builtin.file:
+            path: "/home/{{ service_account.username }}/.ssh/known_hosts.old"
+            state: absent
+
+        - name: Update known_hosts
+          throttle: 1
+          block:
+            - name: "Any reference to {{ ansible_host }} is removed from known_hosts"
+              ansible.builtin.known_hosts:
+                path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+                name: "{{ ansible_host }}"
+                state: absent
+
+            - name: "{{ ansible_host }} in known_hosts"
+              ansible.builtin.lineinfile:
+                path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+                line: "{{ lookup('pipe', 'ssh-keyscan -t rsa ' + ansible_host) }}"
+                state: "{{ vm_state }}"
+              retries: 5
+              delay: 5
+
+#    - name: Ansible dependencies (semi-manual)
+#      ansible.builtin.shell: |
+#        ssh {{ openstack.initial_username }}@{{ ansible_host }} 'sudo apt update && sudo apt install python3-pip -y'
+
+- name: Service account
+  remote_user: "{{ openstack.initial_username }}"
+  become: true
+  block:
+    - ansible.builtin.set_fact:
+        ansible_ssh_private_key_file: /home/service/.ssh/id_cloud
+
+    - name: "Add the service user '{{ service_account.username }}'"
+      ansible.builtin.user:
+        name: "{{ service_account.username }}"
+        comment: Ser Vice
+        uid: 1001
+        groups:
+          - users
+          - sudo
+        password_lock: true
+        shell: /bin/bash
+    
+    - name: Set the service user as passwordless sudo
+      community.general.sudoers:
+        name: "{{ service_account.username }}"
+        user: "{{ service_account.username }}"
+        commands: ALL
+        nopassword: true
+
+    - name: SSH dir
+      ansible.builtin.file:
+        path: "/home/{{ service_account.username }}/.ssh"
+        state: directory
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0750 
+
+    - name: SSH private key    
+      ansible.builtin.copy:
+        content: "{{ service_account.ssh_private_key }}"
+        dest: "/home/{{ service_account.username }}/.ssh/id_rsa"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0600    
+
+    - name: SSH public key
+      ansible.builtin.copy:
+        content: "{{ service_account.ssh_public_key }}"
+        dest: "/home/{{ service_account.username }}/.ssh/id_rsa.pub"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0600    
+
+    - name: Authorise SSH public key
+      ansible.builtin.copy:
+        content: "{{ service_account.ssh_public_key }}"
+        dest: "/home/{{ service_account.username }}/.ssh/authorized_keys"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0600
+
+- name: SSH keys to seed
+  connection: local
+  run_once: true
+  become: false
+  block:
+    - name: SSH private key    
+      ansible.builtin.copy:
+        content: "{{ service_account.ssh_private_key }}"
+        dest: "/home/{{ service_account.username }}/.ssh/id_rsa"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0600    
+
+    - name: SSH public key
+      ansible.builtin.copy:
+        content: "{{ service_account.ssh_public_key }}"
+        dest: "/home/{{ service_account.username }}/.ssh/id_rsa.pub"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0600
+
+- ansible.builtin.set_fact:
+    ansible_ssh_private_key_file: /home/service/.ssh/id_rsa
+
+- name: Ping VM with sudo
+  become: true
+  ansible.builtin.ping:
+
+- name: Update hosts on all VMs
+  connection: local
+  run_once: true
+  become: false
+  block:
+    - name: Collect hostnames from /etc/hosts
+      ansible.builtin.command: "grep -oP '{{ organisation.vm_prefix }}.*' /etc/hosts"
+      register: res_hosts
+
+    - name: Copy central /etc/hosts to temporary file on hosts
+      ansible.builtin.command: "scp /etc/hosts {{ item }}:/tmp/hosts"
+      loop: "{{ res_hosts.stdout_lines }}"
+
+    - name: Update /etc/hosts on hosts
+      ansible.builtin.command: "ssh {{ item }} 'sudo mv /tmp/hosts /etc/hosts'"
+      loop: "{{ res_hosts.stdout_lines }}"

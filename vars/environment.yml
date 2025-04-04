@@ -1,0 +1,7 @@
+openstack:
+  network: diszlexia-mi-net
+  initial_username: ubuntu
+  initial_key: auer_tibor
+
+organisation:
+  vm_prefix: akk

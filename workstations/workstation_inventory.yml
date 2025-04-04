@@ -1,0 +1,21 @@
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    
+  children:
+    workstations:
+      children:
+        akk-ws:
+
+    akk-ws:
+
+      hosts:
+        akk-ws-01:
+          ansible_host: akk-ws-01
+          vm_image: ubuntu2204
+          vm_cpu: 16
+          vm_memory: 64
+          vm_role: workstation
+          vm_securitygroups:
+            - all-open-local
+          vm_state: present
