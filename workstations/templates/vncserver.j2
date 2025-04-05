@@ -5,7 +5,7 @@ After=syslog.target network.target
 [Service]
 Type = simple
 User = %i
-PAMName =login
+# PAMName = login
 EnvironmentFile = /etc/systemd/system/vncserver_%i.env
 PIDFile = /home/%i/.vnc/%H-%i.pid
 ExecStartPre = /bin/sh -c '/usr/bin/vncserver -kill :${DISPLAY_ID} > /dev/null 2>&1 || :'

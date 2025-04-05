@@ -70,10 +70,11 @@
             name: apptainer
             state: latest
 
-        - name: Configure apparmor
-          ansible.builtin.sysctl:
-            name: kernel.apparmor_restrict_unprivileged_userns
-            value: '0'
+# Ubuntu 24.04
+#        - name: Configure apparmor
+#          ansible.builtin.sysctl:
+#            name: kernel.apparmor_restrict_unprivileged_userns
+#            value: '0'
 
     - name: Desktop
       tags: install_desktop
@@ -189,8 +190,8 @@
               # Authentication
               $localhost="no";
               $SecurityTypes="TLSPlain";
-              $RequireUsername="yes";
-              $PAMService="login";
+              # $RequireUsername="yes";
+              # $PAMService="login";
               $PlainUsers="*";
             append_newline: true
             marker: "# {mark} VNC"
