@@ -6,6 +6,8 @@ Ansible requires a Linux machine as a control. The repo assumes that you are on
 an Ubuntu machine with user "service". The simplest way to achieve this is 
 using WSL.
 
+### Configure WSL
+
 1. Passwordless sudo
 
     ```bash
@@ -14,20 +16,28 @@ using WSL.
 
 Add `"service ALL=(ALL) NOPASSWD:ALL"` at the end of the file
 
-2. Update system
+2. Prevent system resetting hosts
+
+    ```bash
+    echo -e '\n[network]\nhostname=seed\ngenerateHosts=false' | sudo tee -a /etc/wsl.conf
+    ```
+
+3. Update system
 
     ```bash
     sudo apt update
     sudo apt upgrade
     ```
 
-3. Install developmental packages
+### Install deployement environment
+
+1. Install developmental packages
 
     ```bash
     sudo apt install curl software-properties-common apt-transport-https python3-pip git pre-commit ca-certificates gnupg
     ```
 
-4. Setup git
+2. Setup git
 
     ```bash
     git config --global init.defaultBranch main
@@ -36,16 +46,16 @@ Add `"service ALL=(ALL) NOPASSWD:ALL"` at the end of the file
     git clone https://github.com/tiborauer/ansible-openstack /home/service/projects/deploy
     ```
 
-5. Ansible
+3. Ansible
 
-    5.1. Install
+    3.1. Install
 
         ```bash
         pip install ansible vault-keyring-client keyrings.cryptfile passlib --user --break-system-package
         echo 'export PATH=/home/service/.local/bin:${PATH}' >> /home/service/.bashrc
         ```
 
-    5.2. Set up vault password
+    3.2. Set up vault password
 
         You MUST create the same vault-id(s) with password as that was/were 
         used for encoding the vault secrets. It will also asks for a password
@@ -55,13 +65,13 @@ Add `"service ALL=(ALL) NOPASSWD:ALL"` at the end of the file
         . /home/service/projects/deploy/utils/ansible-vault-set.sh [vault-id]
         ```
 
-    5.3. Configure Ansible so that it uses the keyring for the vault password
+    3.3. Configure Ansible so that it uses the keyring for the vault password
 
         ```bash
         echo -e '[defaults]\nvault_password_file=/home/service/.local/bin/vault-keyring-client' > /home/service/.ansible.cfg
         ```
 
-6. Setup OpenStack
+4. Setup OpenStack
 
     - Copy the clouds.yaml file to /home/service/.config/openstack (create folder
       if not exists)
