@@ -18,4 +18,5 @@ all:
           vm_role: workstation
           vm_securitygroups:
             - all-open-local
+            - vnc
           vm_state: present
