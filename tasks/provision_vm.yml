@@ -103,55 +103,9 @@
     - ansible.builtin.set_fact:
         ansible_ssh_private_key_file: /home/service/.ssh/id_cloud
 
-    - name: "Add the service user '{{ service_account.username }}'"
-      ansible.builtin.user:
-        name: "{{ service_account.username }}"
-        comment: Ser Vice
-        uid: 1001
-        groups:
-          - users
-          - sudo
-        password_lock: true
-        shell: /bin/bash
-    
-    - name: Set the service user as passwordless sudo
-      community.general.sudoers:
-        name: "{{ service_account.username }}"
-        user: "{{ service_account.username }}"
-        commands: ALL
-        nopassword: true
-
-    - name: SSH dir
-      ansible.builtin.file:
-        path: "/home/{{ service_account.username }}/.ssh"
-        state: directory
-        owner: "{{ service_account.username }}"
-        group: "{{ service_account.username }}"
-        mode: 0750 
-
-    - name: SSH private key    
-      ansible.builtin.copy:
-        content: "{{ service_account.ssh_private_key }}"
-        dest: "/home/{{ service_account.username }}/.ssh/id_rsa"
-        owner: "{{ service_account.username }}"
-        group: "{{ service_account.username }}"
-        mode: 0600    
-
-    - name: SSH public key
-      ansible.builtin.copy:
-        content: "{{ service_account.ssh_public_key }}"
-        dest: "/home/{{ service_account.username }}/.ssh/id_rsa.pub"
-        owner: "{{ service_account.username }}"
-        group: "{{ service_account.username }}"
-        mode: 0600    
-
-    - name: Authorise SSH public key
-      ansible.builtin.copy:
-        content: "{{ service_account.ssh_public_key }}"
-        dest: "/home/{{ service_account.username }}/.ssh/authorized_keys"
-        owner: "{{ service_account.username }}"
-        group: "{{ service_account.username }}"
-        mode: 0600
+    - ansible.builtin.include_tasks: tasks/add_users.yml
+      vars:
+        username: "{{ service_account.username }}"
 
 - name: SSH keys to seed
   connection: local
