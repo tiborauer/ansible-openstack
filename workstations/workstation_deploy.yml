@@ -1,2 +1,252 @@
 ---
 - ansible.builtin.import_playbook: ../create_basevm.yml
+  tags: provision
+
+- name: Configure workstation
+  hosts: workstations
+  gather_facts: true
+  become: true
+  vars_files:
+    - ../vars/environment.yml
+    - ../vars/users.yml
+
+  tasks:
+    - name: Base development packages
+      tags: install
+      ansible.builtin.apt:
+        name:
+          - pre-commit
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+        state: latest
+
+    - name: Docker
+      tags: install
+      block:
+        - name: Docker GPG apt Key
+          ansible.builtin.apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+
+        - name: Add Docker Repository
+          ansible.builtin.apt_repository:
+            repo: "deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+        - name: Docker packages
+          ansible.builtin.apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: latest
+
+        - name: Enable docker
+          ansible.builtin.service:
+            name: docker
+            state: started
+            enabled: true
+
+    - name: Apptainer
+      tags: install
+      block:
+        - name: Apptainer GPG apt Key
+          ansible.builtin.apt_key:
+            url: https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xF6B0F5193D4F3301EF491FF0AFE36534FC6218AE
+            state: present
+
+        - name: Add Apptainer Repository
+          ansible.builtin.apt_repository:
+            repo: "deb https://ppa.launchpadcontent.net/apptainer/ppa/ubuntu {{ ansible_distribution_release }} main"
+            state: present
+
+        - name: Apptainer package
+          ansible.builtin.apt:
+            name: apptainer
+            state: latest
+
+        - name: Configure apparmor
+          ansible.builtin.sysctl:
+            name: kernel.apparmor_restrict_unprivileged_userns
+            value: '0'
+
+    - name: Desktop
+      tags: install_desktop
+      block:
+        - name: Packages required for desktop
+          ansible.builtin.apt:
+            name: ubuntu-desktop-minimal
+            state: latest
+
+        - name: Enable desktop to start on boot
+          ansible.builtin.file:
+            src: /usr/lib/systemd/system/graphical.target
+            dest: /etc/systemd/system/default.target
+            state: link
+          notify:
+            - Reboot
+
+        - name: Disable Wayland
+          ansible.builtin.lineinfile:
+            path: /etc/gdm3/custom.conf
+            regexp: "#WaylandEnable=false"
+            line: "WaylandEnable=false"
+          notify:
+            - Reboot
+
+        - name: Gnome settings
+          block:
+            - name: dconf profile
+              ansible.builtin.copy:
+                content: |
+                  user-db:user
+                  system-db:local
+                dest: /etc/dconf/profile/user
+                mode: "0644"
+
+            - name: Folder structure for dconf settings
+              ansible.builtin.file:
+                path: /etc/dconf/db/local.d/locks
+                state: directory
+
+            - name: Disable screensaver and lock screen
+              ansible.builtin.copy:
+                content: |
+                  [org/gnome/desktop/screensaver]
+                  idle-activation-enabled=false
+                  lock-enabled=false
+                dest: /etc/dconf/db/local.d/00-gnome-screensaver
+                mode: "0644"
+
+            - name: Lock down screensaver and lock screen settings
+              ansible.builtin.copy:
+                content: |
+                  /org/gnome/desktop/screensaver/idle-activation-enabled
+                  /org/gnome/desktop/screensaver/lock-enabled
+                dest: /etc/dconf/db/local.d/locks/00-gnome-screensaver-lock
+                mode: "0644"
+
+            - name: Terminal - use login shell
+              block:
+                - name: Get default terminal profile
+                  ansible.builtin.command: gsettings get org.gnome.Terminal.ProfilesList default
+                  register: res_gnometerm
+
+                - name: Terminal uses login shell
+                  ansible.builtin.copy:
+                    content: |
+                      [org/gnome/terminal/legacy/profiles:]
+                      list=[{{ res_gnometerm.stdout }}]
+                      default={{ res_gnometerm.stdout }}
+
+                      [org/gnome/terminal/legacy/profiles:/:{{ res_gnometerm.stdout[1:-1] }}]
+                      login-shell=true
+                    dest: /etc/dconf/db/local.d/01-gnome-terminal
+                    mode: "0644"
+
+            - name: Update dconf
+              ansible.builtin.command: dconf update
+
+        - meta: flush_handlers
+
+    - name: TigerVNC
+      tags: configure_desktop
+      block:
+        - name: Packages required for TigerVNC
+          ansible.builtin.apt:
+            name:
+              - dbus-x11
+              - tigervnc-common
+              - tigervnc-standalone-server
+              - tigervnc-tools
+            state: latest
+
+        - name: TigerVNC startup
+          ansible.builtin.copy:
+            src: files/xstartup
+            dest: /etc/X11/Xtigervnc-guac-session
+            mode: '0755'
+
+        - name: General configs
+          ansible.builtin.blockinfile:
+            path: /etc/tigervnc/vncserver-config-defaults
+            prepend_newline: true
+            block: |
+              # Ubuntu Desktop
+              $session="ubuntu";
+              $vncStartup="/etc/X11/Xtigervnc-guac-session";
+
+              # Display (maximum resolution; user can always set it to smaller)
+              $geometry="2560x1440";
+              $dpi="96";
+              $depth="24";
+
+              # Authentication
+              $localhost="no";
+              $SecurityTypes="TLSPlain";
+              $RequireUsername="yes";
+              $PAMService="login";
+              $PlainUsers="*";
+            append_newline: true
+            marker: "# {mark} VNC"
+
+        - name: TigerVNC service
+          ansible.builtin.template:
+            src: templates/vncserver.j2
+            dest: /etc/systemd/system/vncserver@.service
+          register: res_vncservice
+
+        - name: Reload systemd daemon
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          when: res_vncservice is changed
+
+    - name: Check services
+      tags:
+        - check_services
+      block:
+        - name: Check systemd-networkd-wait-online (modified after desktop)
+          ansible.builtin.systemd_service:
+            name: systemd-networkd-wait-online
+            state: started
+          register: res_service
+          ignore_errors: true
+          timeout: 120
+
+        - name: Fix systemd-networkd-wait-online
+          block:
+            - name: Get active network interface
+              ansible.builtin.set_fact:
+                network_interface: "{{ item }}"
+              when: (ansible_facts[item].active) and (not network_interface is defined)
+              loop: "{{ ansible_facts.interfaces | reject('search', 'lo') | reject('search', 'docker') }}"
+
+            - name: Fix service file
+              ansible.builtin.lineinfile:
+                path: /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
+                regexp: "^ExecStart=/usr/lib/systemd/systemd-networkd-wait-online"
+                line: "ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --interface={{ network_interface }}"
+              notify:
+                - Reload systemd daemon
+
+            - meta: flush_handlers
+
+            - name: Restart service
+              ansible.builtin.systemd_service:
+                name: systemd-networkd-wait-online
+                state: restarted
+              timeout: 120
+
+          when: res_service is failed
+
+  handlers:
+    - name: Reboot
+      ansible.builtin.reboot:
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd_service:
+        daemon_reload: true

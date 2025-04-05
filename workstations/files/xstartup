@@ -1,0 +1,155 @@
+#!/bin/sh
+# based on https://github.dev/TurboVNC/turbovnc/blob/main/unix/xstartup.turbovnc
+
+## Force VNC instead of local session
+
+unset SESSION_MANAGER
+unset WAYLAND_DISPLAY
+GDK_BACKEND=x11;  export GDK_BACKEND
+XDG_SESSION_TYPE=x11;  export XDG_SESSION_TYPE
+
+## Ensure DBUS
+
+TVNC_USERDBUS=1
+case "$DBUS_SESSION_BUS_ADDRESS" in
+unix:path=/run/user/*)
+  ;;
+*)
+  unset TVNC_USERDBUS
+  ;;
+esac
+if [ "$TVNC_USERDBUS" != "1" ]; then
+  DBUS_LAUNCH=
+  if [ -x /usr/bin/dbus-launch ]; then
+    DBUS_LAUNCH=/usr/bin/dbus-launch
+  elif [ -x /usr/local/bin/dbus-launch ]; then
+    DBUS_LAUNCH=/usr/local/bin/dbus-launch
+  fi
+  if [ "$DBUS_LAUNCH" != "" ]; then
+    eval `$DBUS_LAUNCH --sh-syntax --exit-with-session`
+    export DBUS_SESSION_BUS_ADDRESS
+    echo "$(basename $0): Creating new session bus instance:"
+    echo "$(basename $0):   $DBUS_SESSION_BUS_ADDRESS"
+  else
+    # If we get here, then dbus-launch was not found, DBUS_SESSION_BUS_ADDRESS
+    # is unlikely to be set, and Xsession would subsequently fail on the
+    # aforementioned operating systems.  Thus, unsetting
+    # DBUS_SESSION_BUS_ADDRESS here is just a belt-and-suspenders measure to
+    # help ensure that any window manager that requires D-Bus will fail sooner
+    # rather than later.
+    unset DBUS_SESSION_BUS_ADDRESS
+  fi
+  unset DBUS_LAUNCH
+fi
+
+## Emulate GDM
+
+find_session()
+{
+  for SESSION in $SESSIONS; do
+    if [ "$XSESSIONSDIR" != "" -a -f $XSESSIONSDIR/$SESSION.desktop ]; then
+      DESKTOP_SESSION=$SESSION;  export DESKTOP_SESSION
+    fi
+  done
+  if [ "$DESKTOP_SESSION" = "" ]; then
+    if [ "$TVNC_WM" = "" ]; then
+      echo "$(basename $0): The session desktop file for the default window manager was"
+      echo "$(basename $0):   not found at:"
+    else
+      echo "$(basename $0): The session desktop file for the '$TVNC_WM'"
+      echo "$(basename $0):   window manager was not found at:"
+    fi
+    for SESSION in $SESSIONS; do
+      echo "$(basename $0):   $XSESSIONSDIR/$SESSION.desktop"
+    done
+    exit 1
+  fi
+  unset SESSIONS
+}
+
+XSESSIONSDIR=
+if [ -d /usr/share/xsessions ]; then
+  XSESSIONSDIR=/usr/share/xsessions
+elif [ -d /usr/local/share/xsessions ]; then
+  XSESSIONSDIR=/usr/local/share/xsessions
+fi
+GREP=grep
+if [ -x /usr/bin/ggrep ]; then
+  GREP=ggrep
+fi
+SED=sed
+if [ -x /usr/bin/gsed ]; then
+  SED=gsed
+fi
+NOXSESSION=0
+
+if [ "$TVNC_WM" = "" ]; then
+    # No window manager was specified.  Use GNOME or Unity if it exists.
+    SESSIONS="gnome ubuntu"
+    find_session
+else
+    # We allow a window manager's startup script (e.g. mate-session,
+    # gnome-session) to be specified in TVNC_WM environment variable.
+    # If there is a matching session desktop file for it, we use that instead.
+    SESSIONS="`echo $TVNC_WM | $SED -r 's/^.*\/|-session$//g'`"
+    find_session
+    unset TVNC_WM
+fi
+
+XSESSION=
+if [ "$DESKTOP_SESSION" != "" ]; then
+  # Set the appropriate environment variables.
+  GDMSESSION=$DESKTOP_SESSION;  export GDMSESSION
+  XDG_SESSION_DESKTOP=$DESKTOP_SESSION;  export XDG_SESSION_DESKTOP
+  echo "$(basename $0): Using '$DESKTOP_SESSION' window manager in"
+  echo "$(basename $0):   $XSESSIONSDIR/$DESKTOP_SESSION.desktop"
+  # Parse the session desktop file to determine the window manager's startup
+  # command, and set the TVNC_WM environment variable accordingly.
+  if $GREP -qE "^Exec\s*=" $XSESSIONSDIR/$DESKTOP_SESSION.desktop; then
+    TVNC_WM=`$GREP -E "^Exec\s*=" $XSESSIONSDIR/$DESKTOP_SESSION.desktop | $SED -r 's/^[^=]+=[[:space:]]*//g'`
+    if [ "$NOXSESSION" != "1" ]; then
+      if [ -x /etc/X11/xinit/Xsession ]; then
+        XSESSION=/etc/X11/xinit/Xsession
+      elif [ -x /etc/X11/Xsession ]; then
+        XSESSION=/etc/X11/Xsession
+      fi
+    fi
+  fi
+  # Parse the session desktop file to determine the window manager's desktop
+  # name.
+  for KEY in DesktopNames X-LightDM-DesktopName; do
+    if $GREP -qE "^$KEY\s*=" $XSESSIONSDIR/$DESKTOP_SESSION.desktop; then
+      XDG_CURRENT_DESKTOP=`$GREP -E "^$KEY\s*=" $XSESSIONSDIR/$DESKTOP_SESSION.desktop | $SED -r 's/(^[^=]+=[[:space:]]*|;$)//g' | $SED -r 's/;/:/g'`
+      export XDG_CURRENT_DESKTOP
+    fi
+  done
+fi
+
+if [ "$TVNC_VGL" = "1" ]; then
+  # If launching the window manager using VirtualGL, invoke vglrun through
+  # ssh-agent.  On some operating systems, Xsession launches the window manager
+  # using ssh-agent if there is no active ssh-agent session, and ssh-agent
+  # clobbers LD_PRELOAD. Thus, we explicitly create an ssh-agent session for
+  # VirtualGL.
+  if [ -z "$SSH_AGENT_PID" -a -x /usr/bin/ssh-agent ]; then
+    TVNC_SSHAGENT=/usr/bin/ssh-agent
+  fi
+  if [ -z "$TVNC_VGLRUN" ]; then
+    TVNC_VGLRUN="vglrun +wm"
+  fi
+fi
+
+if [ "$TVNC_WM" = "" ]; then
+  echo "$(basename $0): No window manager was specified, and the default window"
+  echo "$(basename $0):   manager is unavailable."
+  exit 1
+fi
+
+# Start the window manager.
+if [ "$XSESSION" != "" ]; then
+  echo $(basename $0): Executing $TVNC_SSHAGENT $TVNC_VGLRUN $XSESSION \"$TVNC_WM\"
+  exec $TVNC_SSHAGENT $TVNC_VGLRUN $XSESSION "$TVNC_WM"
+else
+  echo $(basename $0): Executing $TVNC_SSHAGENT $TVNC_VGLRUN $TVNC_WM
+  exec $TVNC_SSHAGENT $TVNC_VGLRUN $TVNC_WM
+fi
