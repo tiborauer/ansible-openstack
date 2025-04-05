@@ -8,6 +8,7 @@
   become: true
   vars_files:
     - ../vars/environment.yml
+    - ../vars/service_account.yml
     - ../vars/users.yml
 
   tasks:
@@ -205,9 +206,16 @@
             daemon_reload: true
           when: res_vncservice is changed
 
+    - name: Users
+      tags: users
+      block:
+        - ansible.builtin.include_tasks: ../tasks/add_user.yml
+          vars:
+            username: "{{ item }}"
+          loop: "{{ users | map(attribute='username') }}"
+
     - name: Check services
-      tags:
-        - check_services
+      tags: check_services
       block:
         - name: Check systemd-networkd-wait-online (modified after desktop)
           ansible.builtin.systemd_service:
