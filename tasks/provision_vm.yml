@@ -29,7 +29,6 @@
         vm_flavour: "{{ (res_flavours.flavors | first).name }}"
 
     - name: Provision VM
-      when: false
       throttle: 1
       block:
         - name: "Provision {{ vm_image }} on a(n) {{ vm_flavour }} machine"
@@ -76,7 +75,6 @@
             state: absent
 
         - name: Update known_hosts
-          throttle: 1
           block:
             - name: "Any reference to {{ ansible_host }} is removed from known_hosts"
               ansible.builtin.known_hosts:
@@ -103,7 +101,7 @@
     - ansible.builtin.set_fact:
         ansible_ssh_private_key_file: /home/service/.ssh/id_cloud
 
-    - ansible.builtin.include_tasks: tasks/add_users.yml
+    - ansible.builtin.include_tasks: tasks/add_user.yml
       vars:
         username: "{{ service_account.username }}"
 
