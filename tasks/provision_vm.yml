@@ -26,7 +26,7 @@
 
     - ansible.builtin.set_fact:
         vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
-        vm_flavour: "{{ (res_flavours.flavors | first).name }}"
+        vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | first).name }}"
 
     - name: Provision VM
       throttle: 1
@@ -41,6 +41,7 @@
             network: "{{ openstack.network }}"
             security_groups: "{{ ['default'] + vm_securitygroups }}"
             key_name: "{{ openstack.initial_key }}"
+            state: "{{ vm_state }}"
           register: res_vm
     
         - name: "{{ ansible_host }} in /etc/hosts"
