@@ -22,6 +22,10 @@ Add `"service ALL=(ALL) NOPASSWD:ALL"` at the end of the file
     echo -e '\n[network]\nhostname=seed\ngenerateHosts=false' | sudo tee -a /etc/wsl.conf
     ```
 
+    Since the hostname is now set to "seed" and different from the default one,
+    you need to edit the _/etc/hosts_ and change the corresponding entry so
+    that named localhost (127.0.1.1) points to the hostname "seed".
+
 3. Update system
 
     ```bash
