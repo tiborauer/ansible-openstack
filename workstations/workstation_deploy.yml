@@ -215,6 +215,64 @@
             username: "{{ item }}"
           loop: "{{ users | map(attribute='username') }}"
 
+    - name: Projects
+      tags: projects
+      block:
+        - name: Provision volume for projects
+          connection: local
+          become: false
+          block:
+            - name: Create volume
+              openstack.cloud.volume:
+                validate_certs: false
+                name: "{{ projects_volume.name }}"
+                size: "{{ projects_volume.size }}"
+
+            - name: Attaches volume
+              openstack.cloud.server_volume:
+                validate_certs: false
+                server: "{{ ansible_host }}"
+                volume: "{{ projects_volume.name }}"
+              register: res_vol
+
+        - name: Create partition
+          block:
+            - name: "Partition disk"
+              community.general.parted:
+                device: "{{ res_vol.volume.attachments[0].device }}"
+                number: 1
+                flags: [ lvm ]
+
+            - name: PV to VG
+              community.general.lvg:
+                  vg: "{{ projects_volume.name }}"
+                  pvs: "{{ res_vol.volume.attachments[0].device }}"
+
+            - name: "Logical volume with maximum size"
+              community.general.lvol:
+                vg: "{{ projects_volume.name }}"
+                lv: "{{ projects_volume.name }}"
+                size: "+100%FREE"
+
+            - name: "Format the volume with ext4 fs"
+              community.general.filesystem:
+                fstype: ext4
+                dev: "/dev/{{ projects_volume.name }}/{{ projects_volume.name }}"
+
+            - name: "Create target directory {{ projects_volume.mount_location }}"
+              ansible.builtin.file:
+                path: "{{ projects_volume.mount_location }}"
+                state: directory
+                mode: 0755
+
+            - name: "Mount logical volume to {{ projects_volume.mount_location }}"
+              ansible.posix.mount:
+                path: "{{ projects_volume.mount_location }}"
+                src: "/dev/{{ projects_volume.name }}/{{ projects_volume.name }}"
+                fstype: ext4
+                opts: "{{ projects_volume.mount_opts | default('defaults') }}"
+                state: mounted
+
     - name: Check services
       tags: check_services
       block:

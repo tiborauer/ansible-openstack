@@ -7,3 +7,8 @@ organisation:
   vm_prefix: akk
 
 temporary_intallation_directory: /opt/install
+
+projects_volume:
+  name: projects
+  size: 200 # GiB
+  mount_location: "/projects"
