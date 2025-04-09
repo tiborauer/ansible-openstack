@@ -44,11 +44,20 @@ using WSL.
 2. Setup git
 
     ```bash
-    git config --global init.defaultBranch main
+    # Clone this repo
+    git clone https://github.com/tiborauer/ansible-openstack /home/service/projects/deploy
+
+    # Configure user for contribution
     git config --global user.name <username>
     git config --global user.email <e-mail>
-    git clone https://github.com/tiborauer/ansible-openstack /home/service/projects/deploy
+
+    # Setup pre-commit
+    cd /home/service/projects/deploy
+    pre-commit install
     ```
+
+    N.B.: Pre-commit requires docker. If you do not have it you can add it
+    easily via the utils/install-docker playbook (after Ansible is set).
 
 3. Ansible
 

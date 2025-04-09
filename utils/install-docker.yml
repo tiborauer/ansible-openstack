@@ -1,0 +1,43 @@
+- name: Hosts
+  hosts: localhost
+  connection: local
+  become: true
+  vars_files:
+    - ../vars/service_account.yml
+
+  tasks:
+    - name: Docker
+      tags: install
+      block:
+        - name: Docker GPG apt Key
+          ansible.builtin.apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+
+        - name: Add Docker Repository
+          ansible.builtin.apt_repository:
+            repo: "deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+        - name: Docker packages
+          ansible.builtin.apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: latest
+
+        - name: Enable docker
+          ansible.builtin.service:
+            name: docker
+            state: started
+            enabled: true
+
+        - name: Add service user to docker group
+          ansible.builtin.user:
+            name: "{{ service_account.username }}"
+            comment: "{{ service_account.name }}"
+            groups: docker
+            append: true
