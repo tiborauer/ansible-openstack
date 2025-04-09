@@ -12,11 +12,11 @@
       openstack.cloud.compute_flavor_info:
         # ca_cert: /etc/ssl/certs/ca.pem
         validate_certs: false
-        vcpus: "{{ vm_cpu }}" 
+        vcpus: "{{ vm_cpu }}"
         ram: "{{ vm_memory }}"
       register: res_flavours
       failed_when: res_flavours.flavors | length == 0
-    
+
     - name: Get suitable images
       openstack.cloud.image_info:
         # ca_cert: /etc/ssl/certs/ca.pem
@@ -43,7 +43,7 @@
             key_name: "{{ openstack.initial_key }}"
             state: "{{ vm_state }}"
           register: res_vm
-    
+
         - name: "{{ ansible_host }} in /etc/hosts"
           become: true
           ansible.builtin.lineinfile:
@@ -111,13 +111,13 @@
   run_once: true
   become: false
   block:
-    - name: SSH private key    
+    - name: SSH private key
       ansible.builtin.copy:
         content: "{{ service_account.ssh_private_key }}"
         dest: "/home/{{ service_account.username }}/.ssh/id_rsa"
         owner: "{{ service_account.username }}"
         group: "{{ service_account.username }}"
-        mode: 0600    
+        mode: 0600
 
     - name: SSH public key
       ansible.builtin.copy:

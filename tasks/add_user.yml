@@ -28,15 +28,15 @@
         state: directory
         owner: "{{ user.username }}"
         group: "{{ user.username }}"
-        mode: 0750 
+        mode: 0750
 
-    - name: SSH private key    
+    - name: SSH private key
       ansible.builtin.copy:
         content: "{{ user.ssh_private_key }}"
         dest: "/home/{{ user.username }}/.ssh/id_rsa"
         owner: "{{ user.username }}"
         group: "{{ user.username }}"
-        mode: 0600    
+        mode: 0600
 
     - name: SSH public key
       ansible.builtin.copy:
@@ -44,7 +44,7 @@
         dest: "/home/{{ user.username }}/.ssh/id_rsa.pub"
         owner: "{{ user.username }}"
         group: "{{ user.username }}"
-        mode: 0600    
+        mode: 0600
 
     - name: Authorise SSH public key
       ansible.builtin.copy:
