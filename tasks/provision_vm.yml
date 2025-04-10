@@ -38,6 +38,8 @@
             name: "{{ ansible_host }}"
             flavor: "{{ vm_flavour }}"
             image: "{{ vm_image }}"
+            volume_size: "{{ vm_disk }}"
+            terminate_volume: true
             network: "{{ openstack.network }}"
             security_groups: "{{ ['default'] + vm_securitygroups }}"
             key_name: "{{ openstack.initial_key }}"
