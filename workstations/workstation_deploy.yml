@@ -225,6 +225,7 @@
                 validate_certs: false
                 name: "{{ projects_volume.name }}"
                 size: "{{ projects_volume.size }}"
+                volume_type: SSD_volume
 
             - name: Attaches volume
               openstack.cloud.server_volume:
