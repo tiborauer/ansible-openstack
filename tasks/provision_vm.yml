@@ -8,29 +8,29 @@
         name: openstacksdk
         extra_args: "--user --break-system-package"
 
-    - name: Get suitable flavours
-      openstack.cloud.compute_flavor_info:
-        # ca_cert: /etc/ssl/certs/ca.pem
-        validate_certs: false
-        vcpus: "{{ vm_cpu }}"
-        ram: "{{ vm_memory }}"
-      register: res_flavours
-      failed_when: res_flavours.flavors | length == 0
-
-    - name: Get suitable images
-      openstack.cloud.image_info:
-        # ca_cert: /etc/ssl/certs/ca.pem
-        validate_certs: false
-      register: res_images
-      failed_when: res_images.images | length == 0
-
-    - ansible.builtin.set_fact:
-        vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
-        vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | first).name }}"
-
     - name: Provision VM
       throttle: 1
       block:
+        - name: Get suitable flavours
+          openstack.cloud.compute_flavor_info:
+            # ca_cert: /etc/ssl/certs/ca.pem
+            validate_certs: false
+            vcpus: "{{ vm_cpu }}"
+            ram: "{{ vm_memory }}"
+          register: res_flavours
+          failed_when: res_flavours.flavors | length == 0
+
+        - name: Get suitable images
+          openstack.cloud.image_info:
+            # ca_cert: /etc/ssl/certs/ca.pem
+            validate_certs: false
+          register: res_images
+          failed_when: res_images.images | length == 0
+
+        - ansible.builtin.set_fact:
+            vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
+            vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | sort(attribute='ram') | first).name }}"
+
         - name: "Provision {{ vm_image }} on a(n) {{ vm_flavour }} machine"
           openstack.cloud.server:
             # ca_cert: /etc/ssl/certs/ca.pem
@@ -38,7 +38,6 @@
             name: "{{ ansible_host }}"
             flavor: "{{ vm_flavour }}"
             image: "{{ vm_image }}"
-            volume_size: "{{ vm_disk }}"
             terminate_volume: true
             network: "{{ openstack.network }}"
             security_groups: "{{ ['default'] + vm_securitygroups }}"
@@ -104,7 +103,7 @@
     - ansible.builtin.set_fact:
         ansible_ssh_private_key_file: /home/service/.ssh/id_cloud
 
-    - ansible.builtin.include_tasks: tasks/add_user.yml
+    - ansible.builtin.include_tasks: add_user.yml
       vars:
         username: "{{ service_account.username }}"
 

@@ -15,7 +15,6 @@ all:
           vm_image: ubuntu2204
           vm_cpu: 16
           vm_memory: 64
-          vm_disk: 20
           vm_role: workstation
           vm_securitygroups:
             - all-open-local
