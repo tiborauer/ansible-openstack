@@ -3,8 +3,8 @@
 ## Seed VM
 
 Ansible requires a Linux machine as a control. The repo assumes that you are on
-an Ubuntu machine with user "service". The simplest way to achieve this is
-using WSL.
+an Ubuntu 24.04 machine with user "service". The simplest way to achieve this
+is using WSL.
 
 ### Configure WSL
 
