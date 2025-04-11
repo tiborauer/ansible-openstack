@@ -1,0 +1,22 @@
+- name: "Unprovision {{ ansible_host }}"
+  become: false
+  openstack.cloud.server:
+      # ca_cert: /etc/ssl/certs/ca.pem
+      validate_certs: false
+      name: "{{ ansible_host }}"
+      state: absent
+
+- name: "{{ ansible_host }} removed from /etc/hosts"
+  become: true
+  ansible.builtin.lineinfile:
+    path: "/etc/hosts"
+    search_string: "{{ ansible_host }}"
+    firstmatch: true
+    state: absent
+
+- name: "Any reference to {{ ansible_host }} is removed from known_hosts"
+  ansible.builtin.known_hosts:
+    path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+    hash_host: true
+    name: "{{ ansible_host }}"
+    state: absent

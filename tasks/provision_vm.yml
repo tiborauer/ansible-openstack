@@ -8,60 +8,81 @@
         name: openstacksdk
         extra_args: "--user --break-system-package"
 
-    - name: Provision VM
+    - name: "Query for {{ ansible_host }}"
+      openstack.cloud.server_info:
+        validate_certs: false
+        name: "{{ ansible_host }}"
+      register: res_vm
+      failed_when: res_vm.servers | length > 1
+
+    - name: "Destroy {{ ansible_host }}"
+      when: (res_vm.servers | length == 1) and (((vm_update is defined) and vm_update) or (vm_state == 'absent')
+      ansible.builtin.include_tasks: destroy_vm.yml
+
+    - name: End play
+      ansible.builtin.meta: end_host
+      when: vm_state == "absent"
+
+    - name: "Provision {{ ansible_host }}"
+      when: vm_state == 'present'
       throttle: 1
       block:
-        - name: Get suitable flavours
-          openstack.cloud.compute_flavor_info:
-            # ca_cert: /etc/ssl/certs/ca.pem
-            validate_certs: false
-            vcpus: "{{ vm_cpu }}"
-            ram: "{{ vm_memory }}"
-          register: res_flavours
-          failed_when: res_flavours.flavors | length == 0
+        - name: Query IP of existing VM
+          when: res_vm.servers | length == 1
+          ansible.builtin.set_fact:
+            vm_ip: "{{ res_vm.servers[0].addresses[openstack.network][0].addr }}"
 
-        - name: Get suitable images
-          openstack.cloud.image_info:
-            # ca_cert: /etc/ssl/certs/ca.pem
-            validate_certs: false
-          register: res_images
-          failed_when: res_images.images | length == 0
+        - name: "Build {{ ansible_host }}"
+          when: res_vm.servers | length == 0
+          block:
+            - name: Get suitable flavours
+              openstack.cloud.compute_flavor_info:
+                # ca_cert: /etc/ssl/certs/ca.pem
+                validate_certs: false
+                vcpus: "{{ vm_cpu }}"
+                ram: "{{ vm_memory }}"
+              register: res_flavours
+              failed_when: res_flavours.flavors | length == 0
 
-        - ansible.builtin.set_fact:
-            vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
-            vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | sort(attribute='ram') | first).name }}"
+            - name: Get suitable images
+              openstack.cloud.image_info:
+                # ca_cert: /etc/ssl/certs/ca.pem
+                validate_certs: false
+              register: res_images
+              failed_when: res_images.images | length == 0
 
-        - name: "Provision {{ vm_image }} on a(n) {{ vm_flavour }} machine"
-          openstack.cloud.server:
-            # ca_cert: /etc/ssl/certs/ca.pem
-            validate_certs: false
-            name: "{{ ansible_host }}"
-            flavor: "{{ vm_flavour }}"
-            image: "{{ vm_image }}"
-            terminate_volume: true
-            network: "{{ openstack.network }}"
-            security_groups: "{{ ['default'] + vm_securitygroups }}"
-            key_name: "{{ openstack.initial_key }}"
-            state: "{{ vm_state }}"
-          register: res_vm
+            - ansible.builtin.set_fact:
+                vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
+                vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | sort(attribute='ram') | first).name }}"
+
+            - name: "Provision {{ vm_image }} on {{ vm_flavour }} machine"
+              openstack.cloud.server:
+                # ca_cert: /etc/ssl/certs/ca.pem
+                validate_certs: false
+                name: "{{ ansible_host }}"
+                flavor: "{{ vm_flavour }}"
+                image: "{{ vm_image }}"
+                terminate_volume: true
+                network: "{{ openstack.network }}"
+                security_groups: "{{ ['default'] + vm_securitygroups }}"
+                key_name: "{{ openstack.initial_key }}"
+              register: res_vm
+
+            - ansible.builtin.set_fact:
+                vm_ip: "{{ res_vm.server.addresses[openstack.network][0].addr }}"
 
         - name: "{{ ansible_host }} in /etc/hosts"
           become: true
           ansible.builtin.lineinfile:
             path: "/etc/hosts"
             search_string: "{{ ansible_host }}"
-            line: "{{ res_vm.server.addresses[openstack.network][0].addr }} {{ ansible_host }}"
+            line: "{{ vm_ip }} {{ ansible_host }}"
             insertbefore: '^\n'
             firstmatch: true
-            state: "{{ vm_state }}"
 
-        - name: End play
-          ansible.builtin.meta: end_host
-          when: vm_state == "absent"
-
-        - name: Check VM's IP address
+        - name: Report VM's IP address
           ansible.builtin.debug:
-            msg: "VM {{ ansible_host }} is {{ vm_state }} at {{ res_vm.server.addresses[openstack.network][0].addr }}"
+            msg: "VM {{ ansible_host }} at {{ vm_ip }}"
 
         - name: known_hosts exists
           ansible.builtin.file:
@@ -81,12 +102,14 @@
             - name: "Any reference to {{ ansible_host }} is removed from known_hosts"
               ansible.builtin.known_hosts:
                 path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+                hash_host: true
                 name: "{{ ansible_host }}"
                 state: absent
 
             - name: "{{ ansible_host }} in known_hosts"
               ansible.builtin.lineinfile:
                 path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+                hash_host: true
                 line: "{{ lookup('pipe', 'ssh-keyscan -t rsa ' + ansible_host) }}"
                 state: "{{ vm_state }}"
               retries: 5
