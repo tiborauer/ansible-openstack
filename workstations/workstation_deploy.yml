@@ -10,6 +10,7 @@
     - ../vars/environment.yml
     - ../vars/service_account.yml
     - ../vars/users.yml
+    - ../vars/projects.yml
 
   tasks:
     - name: Base development packages
@@ -106,7 +107,7 @@
                   user-db:user
                   system-db:local
                 dest: /etc/dconf/profile/user
-                mode: "0644"
+                mode: '0644'
 
             - name: Folder structure for dconf settings
               ansible.builtin.file:
@@ -120,7 +121,7 @@
                   idle-activation-enabled=false
                   lock-enabled=false
                 dest: /etc/dconf/db/local.d/00-gnome-screensaver
-                mode: "0644"
+                mode: '0644'
 
             - name: Lock down screensaver and lock screen settings
               ansible.builtin.copy:
@@ -128,7 +129,7 @@
                   /org/gnome/desktop/screensaver/idle-activation-enabled
                   /org/gnome/desktop/screensaver/lock-enabled
                 dest: /etc/dconf/db/local.d/locks/00-gnome-screensaver-lock
-                mode: "0644"
+                mode: '0644'
 
             - name: Terminal - use login shell
               block:
@@ -146,7 +147,7 @@
                       [org/gnome/terminal/legacy/profiles:/:{{ res_gnometerm.stdout[1:-1] }}]
                       login-shell=true
                     dest: /etc/dconf/db/local.d/01-gnome-terminal
-                    mode: "0644"
+                    mode: '0644'
 
             - name: Update dconf
               ansible.builtin.command: dconf update
@@ -271,6 +272,13 @@
                 fstype: ext4
                 opts: "{{ projects_volume.mount_opts | default('defaults') }}"
                 state: mounted
+
+        - name: Add projects
+          block:
+            - ansible.builtin.include_tasks: ../tasks/add_project.yml
+              loop: "{{ projects }}"
+              loop_control:
+                loop_var: project
 
     - name: Check services
       tags: check_services

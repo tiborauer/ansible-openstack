@@ -1,0 +1,21 @@
+- name: "Project {{ project.name }}"
+  run_once: true
+  block:
+    - name: "Project group {{ project.name }}"
+      ansible.builtin.group:
+        name: "{{ project.name }}"
+
+    - name: Project group members
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: "{{ project.name }}"
+        append: true
+      loop: "{{ project.members }}"
+
+    - name: "Project directory {{ project.name }}"
+      ansible.builtin.file:
+        path: "{{ projects_volume.mount_location }}/{{ project.name }}"
+        state: directory
+        owner: "{{ project.members[0] }}"
+        group: "{{ project.name }}"
+        mode: '2770'
