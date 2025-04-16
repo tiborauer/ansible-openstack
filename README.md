@@ -19,7 +19,7 @@ is using WSL.
 2. Prevent system resetting hosts
 
     ```bash
-    echo -e '\n[network]\nhostname=seed\ngenerateHosts=false' | sudo tee -a /etc/wsl.conf
+    echo -e '[network]\nhostname=seed\ngenerateHosts=false' | sudo tee -a /etc/wsl.conf
     ```
 
     Since the hostname is now set to "seed" and different from the default one,
