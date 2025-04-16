@@ -89,7 +89,7 @@
             path: "/home/{{ service_account.username }}/.ssh/known_hosts"
             owner: "{{ service_account.username }}"
             group: "{{ service_account.username }}"
-            mode: "0600"
+            mode: '0600'
             state: touch
 
         - name: known_hosts.old do not exist
@@ -141,7 +141,7 @@
         dest: "/home/{{ service_account.username }}/.ssh/id_rsa"
         owner: "{{ service_account.username }}"
         group: "{{ service_account.username }}"
-        mode: 0600
+        mode: '0600'
 
     - name: SSH public key
       ansible.builtin.copy:
@@ -149,7 +149,7 @@
         dest: "/home/{{ service_account.username }}/.ssh/id_rsa.pub"
         owner: "{{ service_account.username }}"
         group: "{{ service_account.username }}"
-        mode: 0600
+        mode: '0600'
 
 - ansible.builtin.set_fact:
     ansible_ssh_private_key_file: /home/service/.ssh/id_rsa
