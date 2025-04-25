@@ -154,6 +154,38 @@
 
         - meta: flush_handlers
 
+    - name: Applications
+      tags: install_applications
+      block:
+        - name: Firefox
+          block:
+            - name: Firefox GPG apt Key
+              ansible.builtin.apt_key:
+                url:  https://packages.mozilla.org/apt/repo-signing-key.gpg
+                state: present
+
+            - name: Add Firefox Repository
+              ansible.builtin.apt_repository:
+                repo: "deb https://packages.mozilla.org/apt mozilla main"
+                state: present
+
+            - name: Prioritise Mozilla repo
+              ansible.builtin.copy:
+                content: |
+
+                  Package: *
+                  Pin: origin packages.mozilla.org
+                  Pin-Priority: 1000
+
+                dest: /etc/apt/preferences.d/mozilla
+
+            - name: Firefox packages
+              ansible.builtin.apt:
+                name: firefox
+                allow_downgrade: yes
+                update_cache: yes
+                state: latest
+
     - name: TigerVNC
       tags: configure_desktop
       block:
