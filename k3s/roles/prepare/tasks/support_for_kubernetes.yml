@@ -3,7 +3,7 @@
   become: false
   ansible.builtin.pip:
     name: kubernetes
-    extra_args: "--user" # --break-system-package" # not on Ubuntu 22.04
+    extra_args: "--user --break-system-package"
 
 - name: kubectl
   when: "(exclude_package is not defined) or ('kubectl' not in exclude_package)"

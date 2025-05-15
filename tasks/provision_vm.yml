@@ -6,7 +6,7 @@
       run_once: true
       ansible.builtin.pip:
         name: openstacksdk
-        extra_args: "--user" # --break-system-package" # not on Ubuntu 22.04
+        extra_args: "--user --break-system-package"
 
     - name: "Query for {{ ansible_host }}"
       openstack.cloud.server_info:
