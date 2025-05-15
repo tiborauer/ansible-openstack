@@ -39,8 +39,8 @@
               openstack.cloud.compute_flavor_info:
                 # ca_cert: /etc/ssl/certs/ca.pem
                 validate_certs: false
-                vcpus: "{{ vm_cpu }}"
-                ram: "{{ vm_memory }}"
+                vcpus: ">={{ vm_cpu }}"
+                ram: ">={{ vm_memory * 1024 }}"
               register: res_flavours
               failed_when: res_flavours.flavors | length == 0
 
