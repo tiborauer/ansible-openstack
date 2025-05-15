@@ -5,6 +5,7 @@ openstack:
 
 organisation:
   vm_prefix: akk
+  vm_tag_services: services
 
 temporary_intallation_directory: /opt/install
 

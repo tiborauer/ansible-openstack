@@ -1,0 +1,46 @@
+- name: python-kubernetes for service account
+  when: "(exclude_package is not defined) or ('python-kubernetes' not in exclude_package)"
+  become: false
+  ansible.builtin.pip:
+    name: kubernetes
+    extra_args: "--user" # --break-system-package" # not on Ubuntu 22.04
+
+- name: kubectl
+  when: "(exclude_package is not defined) or ('kubectl' not in exclude_package)"
+  block:
+    - ansible.builtin.include_tasks: install_external_package.yml
+      vars:
+        package_name: kubectl
+        package_repository: "https://pkgs.k8s.io/core:/stable:/{{ kube_version }}/deb/ /"
+        package_repository_key: "https://pkgs.k8s.io/core:/stable:/{{ kube_version }}/deb/Release.key"
+
+    - name: Configure kubectl autocomplete
+      ansible.builtin.lineinfile:
+        path: "{{ '/users/' + username + '/.bashrc' if username is defined else '/home/' + service_account.username + '/.bashrc' }}"
+        regexp: '\.\s+<\(kubectl completion bash\)'
+        line: ". <(kubectl completion bash)  # Added by k3s-ansible"
+
+- name: Helm
+  when: "(exclude_package is not defined) or ('helm' not in exclude_package)"
+  ansible.builtin.include_tasks: install_external_package.yml
+  vars:
+    package_name: helm
+    package_repository: "https://baltocdn.com/helm/stable/debian/ all main"
+    package_repository_key: "https://baltocdn.com/helm/signing.asc"
+
+- name: k9s
+  when: "(exclude_package is not defined) or ('k9s' not in exclude_package)"
+  block:
+    - name: "Temporary installation directory {{ temporary_intallation_directory }} is present"
+      ansible.builtin.file:
+        path: "{{ temporary_intallation_directory }}"
+        state: directory
+
+    - name: Obtain k9s package
+      ansible.builtin.get_url:
+        url: https://github.com/derailed/k9s/releases/download/{{ k9s_version }}/k9s_linux_amd64.deb
+        dest: "{{ temporary_intallation_directory }}/k9s_linux_amd64.deb"
+
+    - name: Install k9s
+      ansible.builtin.apt:
+        deb: "{{ temporary_intallation_directory }}/k9s_linux_amd64.deb"

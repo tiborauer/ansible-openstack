@@ -1,0 +1,15 @@
+- name: Packages supporting kubernetes (local)
+  run_once: true
+  connection: local
+  block:
+    - ansible.builtin.include_tasks: support_for_kubernetes.yml
+      vars:
+        exclude_package: ['kubectl']
+
+- ansible.builtin.include_tasks: prepare_nodes.yml
+
+- name: Packages supporting kubernetes (control nodes)
+  ansible.builtin.include_tasks: support_for_kubernetes.yml
+  when: "'control' in group_names"
+  vars:
+    exclude_package: ['k9s']

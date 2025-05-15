@@ -1,0 +1,8 @@
+kube_version: v1.32
+
+temporary_intallation_directory:  /opt/install
+
+service_account:
+  username: service
+
+k9s_version: "v0.32.7"

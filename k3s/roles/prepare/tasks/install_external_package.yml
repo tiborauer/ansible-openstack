@@ -1,0 +1,14 @@
+- name: "{{ package_name }} apt Key"
+  ansible.builtin.apt_key:
+    url: "{{ package_repository_key }}"
+    state: present
+
+- name: "Add {{ package_name }} Repository"
+  ansible.builtin.apt_repository:
+    repo: "deb {{ package_repository }}"
+    state: present
+
+- name: "{{ package_name }} package"
+  ansible.builtin.apt:
+    name: "{{ package_name }}"
+    state: latest

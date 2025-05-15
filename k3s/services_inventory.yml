@@ -1,0 +1,31 @@
+all:
+  children:
+    k3s_services:
+      vars:
+        vm_image: ubuntu2204
+
+      children:
+        services_control:
+        services_worker:
+
+    services_control:
+      vars:
+        vm_cpu: 4
+        vm_memory: 8
+        vm_disksize: 20 # 80 (m2.large)
+
+      hosts:
+        akk-services-control-01:
+          ansible_host: akk-services-control-01
+          vm_state: present
+
+    services_worker:
+      vars:
+        vm_cpu: 8 # 16 (r2.2xlarge)
+        vm_memory: 64
+        vm_disksize: 100 # 160 (r2.2xlarge)
+
+      hosts:
+        akk-services-worker-01:
+          ansible_host: akk-services-worker-01
+          vm_state: present

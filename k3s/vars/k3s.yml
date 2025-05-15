@@ -1,0 +1,35 @@
+vm:
+  prefix: "{{ organisation.vm_prefix }}"
+  tag: "{{ organisation['vm_tag_' + cluster_name] }}"
+
+kube_version: v1.32
+
+k3s_version: "{{ kube_version }}.2-rc1+k3s1"
+
+cluster:
+  name: "{{ vm.prefix }}-{{ vm.tag }}"
+  apiserver_port: 6443
+server:
+  directory: /var/lib/rancher/k3s
+  config_file: /etc/rancher/k3s/config.yaml
+  config:
+    write-kubeconfig-mode: "0644"
+    node-label:
+      - "role={{ ansible_host | regex_search('(?<=' + vm.tag + '-)[a-z]*') }}"
+    cluster-cidr: "192.168.0.0/16"
+    flannel-backend: none
+    disable-network-policy: true
+    disable:
+      - traefik
+      - servicelb
+
+kubeconfig: "/home/{{ service_account.username }}/kubeconfig_{{ vm.tag }}.yml"
+user_kubeconfigs:
+  directory: /home/{{ service_account.username }}/kubeconfigs
+  expiration: 1 # in years
+
+k9s_version: "v0.32.7"
+
+calico_metrics_port: 9094
+
+metallb_version: "v0.14.9"
