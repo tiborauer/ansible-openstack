@@ -6,4 +6,5 @@ crash.*.log
 **/password_file*
 
 # Ansible sandbox
+play.yml
 **/sandbox/*
