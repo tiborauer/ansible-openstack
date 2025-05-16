@@ -2,7 +2,12 @@ all:
   children:
     k3s_services:
       vars:
+        ansible_python_interpreter: /usr/bin/python3
         vm_image: ubuntu2204
+        vm_securitygroups:
+            - all-open-local
+            - k3s-api
+            - web
 
       children:
         services_control:
