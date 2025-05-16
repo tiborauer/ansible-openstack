@@ -23,13 +23,28 @@
     - name: Gather facts after provisioning
       ansible.builtin.setup:
 
-    - name: apt is updated
-      ansible.builtin.apt:
-        name: "*"
-        state: latest
-        update_cache: yes
-        autoclean: yes
-        autoremove: yes
+    - name: Update system
+      block:
+        - name: apt is updated
+          ansible.builtin.apt:
+            name: "*"
+            state: latest
+            update_cache: true
+
+        - name: Check if a reboot is required.
+          ansible.builtin.stat:
+            path: /var/run/reboot-required
+            get_checksum: no
+          register: res_reboot
+
+        - name: Reboot the VM (if required).
+          when: res_reboot.stat.exists == true
+          ansible.builtin.reboot:
+
+        - name: apt is cleaned
+          ansible.builtin.apt:
+            autoclean: true
+            autoremove: true
 
     - name: "Temporary installation folder {{ temporary_intallation_directory }}"
       ansible.builtin.file:
