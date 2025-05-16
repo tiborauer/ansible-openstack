@@ -12,11 +12,11 @@
       openstack.cloud.server_info:
         validate_certs: false
         name: "{{ ansible_host }}"
-      register: res_vm
-      failed_when: res_vm.servers | length > 1
+      register: res_vmtest
+      failed_when: res_vmtest.servers | length > 1
 
     - name: "Destroy {{ ansible_host }}"
-      when: (res_vm.servers | length == 1) and (((vm_update is defined) and vm_update) or (vm_state == 'absent')
+      when: (res_vmtest.servers | length == 1) and (vm_update | default(false)) or (vm_state == 'absent')
       ansible.builtin.include_tasks: destroy_vm.yml
 
     - name: End play
@@ -28,12 +28,12 @@
       throttle: 1
       block:
         - name: Query IP of existing VM
-          when: res_vm.servers | length == 1
+          when: res_vmtest.servers | length == 1
           ansible.builtin.set_fact:
-            vm_ip: "{{ res_vm.servers[0].addresses[openstack.network][0].addr }}"
+            vm_ip: "{{ res_vmtest.servers[0].addresses[openstack.network][0].addr }}"
 
         - name: "Build {{ ansible_host }}"
-          when: res_vm.servers | length == 0
+          when: res_vmtest.servers | length == 0
           block:
             - name: Get suitable flavours
               openstack.cloud.compute_flavor_info:
@@ -55,7 +55,7 @@
                 vm_image: "{{ res_images.images | selectattr('name', 'match', '^' + vm_image + '.*') | map(attribute='name') | list | sort | last }}"
                 vm_flavour: "{{ (res_flavours.flavors | sort(attribute='vcpus') | sort(attribute='ram') | first).name }}"
 
-            - name: "Provision {{ vm_image }} on {{ vm_flavour }} machine"
+            - name: Provision machine
               openstack.cloud.server:
                 # ca_cert: /etc/ssl/certs/ca.pem
                 validate_certs: false
@@ -71,6 +71,10 @@
             - ansible.builtin.set_fact:
                 vm_ip: "{{ res_vm.server.addresses[openstack.network][0].addr }}"
 
+            - name: Report Provision
+              ansible.builtin.debug:
+                msg: "VM {{ ansible_host }} at {{ vm_ip }} on {{ vm_flavour }} running {{ vm_image }}"
+
         - name: "{{ ansible_host }} in /etc/hosts"
           become: true
           ansible.builtin.lineinfile:
@@ -80,10 +84,16 @@
             insertbefore: '^\n'
             firstmatch: true
 
-        - name: Report VM's IP address
-          ansible.builtin.debug:
-            msg: "VM {{ ansible_host }} at {{ vm_ip }}"
+        - name: "Any reference to {{ ansible_host }} is removed from known_hosts"
+          ansible.builtin.known_hosts:
+            path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+            hash_host: true
+            name: "{{ ansible_host }}"
+            state: absent
 
+    - name: Set up SSH
+      when: vm_state == "present"
+      block:
         - name: known_hosts exists
           ansible.builtin.file:
             path: "/home/{{ service_account.username }}/.ssh/known_hosts"
@@ -97,27 +107,21 @@
             path: "/home/{{ service_account.username }}/.ssh/known_hosts.old"
             state: absent
 
-        - name: Update known_hosts
-          block:
-            - name: "Any reference to {{ ansible_host }} is removed from known_hosts"
-              ansible.builtin.known_hosts:
-                path: "/home/{{ service_account.username }}/.ssh/known_hosts"
-                hash_host: true
-                name: "{{ ansible_host }}"
-                state: absent
+        - name: machine in known_hosts
+          throttle: 1
+          ansible.builtin.known_hosts:
+            path: "/home/{{ service_account.username }}/.ssh/known_hosts"
+            hash_host: true
+            name: "{{ ansible_host }}"
+            key: "{{ lookup('pipe', 'ssh-keyscan -t rsa ' + ansible_host) }}"
+          register: res_knownhosts
+          retries: 10
+          delay: 20
+          until: not res_knownhosts is failed
 
-            - name: "{{ ansible_host }} in known_hosts"
-              ansible.builtin.lineinfile:
-                path: "/home/{{ service_account.username }}/.ssh/known_hosts"
-                hash_host: true
-                line: "{{ lookup('pipe', 'ssh-keyscan -t rsa ' + ansible_host) }}"
-                state: "{{ vm_state }}"
-              retries: 5
-              delay: 5
-
-#    - name: Ansible dependencies (semi-manual)
-#      ansible.builtin.shell: |
-#        ssh {{ openstack.initial_username }}@{{ ansible_host }} 'sudo apt update && sudo apt install python3-pip -y'
+# - name: Ansible dependencies (semi-manual)
+#   ansible.builtin.shell: |
+#     ssh {{ openstack.initial_username }}@{{ ansible_host }} 'sudo apt update && sudo apt install python3-pip -y'
 
 - name: Service account
   remote_user: "{{ openstack.initial_username }}"

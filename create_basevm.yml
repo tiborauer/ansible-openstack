@@ -18,7 +18,7 @@
           ignore_errors: true
 
         - ansible.builtin.include_tasks: tasks/provision_vm.yml
-          when: ((vm_update is defined) and vm_update) or (((res_ping.unreachable is defined) or (res_ping is failed)) and (vm_state == "present")) or ((res_ping.unreachable is not defined) and (vm_state == "absent"))
+          when: (vm_update | default(false)) or (((res_ping.unreachable is defined) or (res_ping is failed)) and (vm_state == "present")) or ((res_ping.unreachable is not defined) and (vm_state == "absent"))
 
     - name: Gather facts after provisioning
       ansible.builtin.setup:
