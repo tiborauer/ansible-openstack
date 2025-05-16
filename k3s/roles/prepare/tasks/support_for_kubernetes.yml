@@ -1,9 +1,20 @@
 - name: python-kubernetes for service account
   when: "(exclude_package is not defined) or ('python-kubernetes' not in exclude_package)"
   become: false
-  ansible.builtin.pip:
-    name: kubernetes
-    extra_args: "--user --break-system-package"
+  block:
+    - name: python-kubernetes for service account (#1 with break-system-package)
+      ansible.builtin.pip:
+        name: kubernetes
+        extra_args: "--user --break-system-package"
+      register: res_pip
+      ignore_errors: true
+
+    - name: python-kubernetes for service account (#2 without break-system-package)
+      when: res_pip is failed
+      become: false
+      ansible.builtin.pip:
+        name: kubernetes
+        extra_args: "--user"
 
 - name: kubectl
   when: "(exclude_package is not defined) or ('kubectl' not in exclude_package)"
