@@ -1,0 +1,40 @@
+- name: Token from the first server (already stored)
+  when: hostvars[groups[cluster_name + '_control'][0]].k3s_token is defined
+  ansible.builtin.set_fact:
+    k3s_token: "{{ hostvars[groups[cluster_name + '_control'][0]].k3s_token }}"
+
+- name: Retrieve token from the first server
+  when: k3s_token is not defined
+  ansible.builtin.include_tasks: retrieve_token.yml
+
+- name: Delete non-conforming token from the service environment
+  ansible.builtin.lineinfile:
+    state: absent
+    path: /etc/systemd/system/k3s.service.env
+    regexp: "^K3S_TOKEN=\\s*(?!{{ k3s_token }}\\s*$)"
+
+- name: Token for joining the cluster
+  no_log: true # avoid logging the token
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/k3s.service.env
+    line: "K3S_TOKEN={{ k3s_token }}"
+
+- name: Setup config file
+  when: "'control' in group_names"
+  block:
+    - name: Make config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/k3s"
+        mode: "0755"
+        state: directory
+
+    - name: Copy config values
+      ansible.builtin.copy:
+        content: "{{ server.config }}"
+        dest: "{{ server.config_file }}"
+        mode: "0644"
+      register: res_serviceconfig
+
+- ansible.builtin.include_tasks: deploy_k3s_service.yml
+  vars:
+    service_template: "templates/k3s-service_{{ ansible_host | regex_search('(?<=' + vm.tag + '-)[a-z]*') }}.j2"

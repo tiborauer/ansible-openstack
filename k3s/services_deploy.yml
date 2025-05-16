@@ -17,3 +17,6 @@
   tasks:
     - ansible.builtin.include_role:
         name: prepare
+
+    - ansible.builtin.include_role:
+        name: k3s

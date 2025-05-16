@@ -1,0 +1,296 @@
+- name: Setup config file
+  block:
+    - name: Make config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/k3s"
+        mode: "0755"
+        state: directory
+
+    - name: Copy config values
+      ansible.builtin.copy:
+        content: "{{ server.config }}"
+        dest: "{{ server.config_file }}"
+        mode: "0644"
+      register: res_serviceconfig
+
+- name: Init first server node
+  block:
+    - ansible.builtin.include_tasks: deploy_k3s_service.yml
+      vars:
+        service_template: templates/k3s-service_server.j2
+
+    - name: Pause to allow first server startup
+      ansible.builtin.pause:
+        seconds: 30
+
+- name: Kubeconfig
+  become: false
+  block:
+    - name: Fetch kubeconfig
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ kubeconfig }}"
+        flat: true
+        mode: '0600'
+
+    - name: Change server address in kubeconfig
+      connection: local
+      ansible.builtin.shell: |
+        KUBECONFIG={{ kubeconfig }} kubectl config set-cluster default --server=https://{{ cluster.apiserver_vip }}:{{ cluster.apiserver_port }}
+      register: res_csa
+      changed_when:
+        - res_csa.rc == 0
+
+    - name: Setup kubeconfig context on control node - {{ cluster.name }}
+      connection: local
+      ansible.builtin.replace:
+        path: "{{ kubeconfig }}"
+        regexp: default
+        replace: "{{ cluster.name }}"
+
+- ansible.builtin.include_tasks: retrieve_token.yml
+
+- name: Calico for CNI
+  become: false
+  block:
+    - ansible.builtin.include_tasks: docker_secret.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+        secret_namespace: tigera-operator # pragma: allowlist secret
+
+    - name: Add Calico repo
+      kubernetes.core.helm_repository:
+        name: projectcalico
+        repo_url: "https://docs.tigera.io/calico/charts"
+
+    - name: Install Calico # MUST match https://github.com
+      kubernetes.core.helm:
+        name: calico
+        chart_ref: projectcalico/tigera-operator
+        release_namespace: tigera-operator
+        values:
+          installation:
+            enabled: true
+            imagePullSecrets:
+              - name: docker-secret
+            calicoNetwork:
+              containerIPForwarding: "Enabled"
+            nodeMetricsPort: "{{ calico_nodemetrics_port }}"
+            typhaMetricsPort: "{{ calico_typhametrics_port }}"
+        wait: true
+
+    - name: Monitoring Calico
+      block:
+        - name: Wait for Felix
+          kubernetes.core.k8s_info:
+            namespace: calico-system
+            api_version: projectcalico.org/v3
+            kind: felixconfiguration
+            name: default
+          register: res_felix
+          until: res_felix.resources | length == 1
+          retries: 12
+          delay: 10
+          failed_when: res_felix.resources | length != 1
+
+        - name: Enable Felix metrics
+          kubernetes.core.k8s:
+            definition:
+              apiVersion: projectcalico.org/v3
+              kind: felixconfiguration
+              metadata:
+                name: default
+                namespace: calico-system
+              spec:
+                prometheusMetricsEnabled: true
+
+        - name: Service for Felix metrics
+          kubernetes.core.k8s:
+            definition:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: calico-felix-metrics
+                namespace: calico-system
+                labels:
+                  k8s-app: calico-node
+              spec: "{{ lookup('template', 'templates/service_spec.j2') | from_yaml }}"
+          vars:
+            service_is_headless: false
+            service_selector: "k8s-app: calico-node"
+            port_name: metrics-port
+            port_number: "{{ calico_nodemetrics_port }}"
+
+- name: Sealed secrets
+  become: false
+  block:
+    - ansible.builtin.include_tasks: docker_secret.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+        secret_namespace: kube-system # pragma: allowlist secret
+
+    - name: Add sealed-secrets-controller
+      kubernetes.core.helm_repository:
+        name: sealed-secrets
+        repo_url: "https://bitnami-labs.github.io/sealed-secrets"
+
+    - name: Install sealed-secrets-controller # MUST match https://github.com
+      kubernetes.core.helm:
+        name: sealed-secrets
+        chart_ref: sealed-secrets/sealed-secrets
+        release_namespace: kube-system
+        create_namespace: true
+        values:
+          fullnameOverride: sealed-secrets-controller
+          image:
+            pullSecrets:
+              - docker-secret
+
+    - name: Install kubeseal
+      become: true
+      ansible.builtin.unarchive:
+        src: "https://github.com/bitnami-labs/sealed-secrets/releases/download/v{{ kubeseal_version }}/kubeseal-{{ kubeseal_version }}-linux-amd64.tar.gz"
+        dest: /usr/local/bin
+        mode: 0755
+        remote_src: yes
+
+    - name: Seal docker-secrets
+      ansible.builtin.include_tasks: docker_secret.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+      loop:
+        - kube-system
+        - tigera-operator
+      loop_control:
+        loop_var: secret_namespace
+
+- name: MetalLB
+  become: false
+  block:
+    - name: Namespace
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: metallb-system
+            labels:
+              pod-security.kubernetes.io/audit: privileged
+              pod-security.kubernetes.io/enforce: privileged
+              pod-security.kubernetes.io/warn: privileged
+
+    - ansible.builtin.include_tasks: docker_secret.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+        secret_namespace: metallb-system # pragma: allowlist secret
+
+    - name: Add MetalLB repo
+      kubernetes.core.helm_repository:
+        name: metallb
+        repo_url: "https://metallb.github.io/metallb"
+
+    - name: Install MetalLB # MUST match https://github.com
+      kubernetes.core.helm:
+        name: metallb
+        chart_ref: metallb/metallb
+        release_namespace: metallb-system
+        values:
+          imagePullSecrets:
+            - name: docker-secret
+        wait: true
+
+- name: High availability for K3s API server
+  become: false
+  block:
+    - ansible.builtin.include_tasks: tasks/metallb_create_ippool.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+        pool_name: apiserver
+        pool_ips:
+          - "{{ cluster.apiserver_vip }}/32"
+
+    - name: Endpoint-copier-operator
+      block:
+        - name: Add endpoint-copier-operator to endpoint-copier repo
+          kubernetes.core.helm_repository:
+            name: suse-edge
+            repo_url: "https://suse-edge.github.io/charts"
+
+        - name: Install endpoint-copier-operator
+          kubernetes.core.helm:
+            name: endpoint-copier-operator
+            chart_ref: suse-edge/endpoint-copier-operator
+            release_namespace: endpoint-copier-operator
+            create_namespace: true
+            wait: true
+
+    - name: Loadbalancer for k3s API server
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: kubernetes-vip
+            namespace: default
+            annotations:
+              metallb.universe.tf/address-pool: apiserver
+          spec:
+            type: LoadBalancer
+            internalTrafficPolicy: Cluster
+            externalTrafficPolicy: Cluster
+            ipFamilies:
+              - IPv4
+            ipFamilyPolicy: SingleStack
+            ports:
+              - name: https
+                port: 6443
+                protocol: TCP
+                targetPort: 6443
+            sessionAffinity: None
+
+- name: Install ingress-nginx
+  become: false
+  block:
+    - ansible.builtin.include_tasks: docker_secret.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+        secret_namespace: ingress-nginx # pragma: allowlist secret
+
+    - ansible.builtin.include_tasks: metallb_create_ippool.yml
+      vars:
+        pool_name: ingress
+        pool_ips:
+          - "{{ cluster.ingress_vip }}/32"
+        pool_autoassign: true
+
+    - name: Add ingress-nginx to network repo
+      kubernetes.core.helm_repository:
+        name: ingress
+        repo_url: "https://kubernetes.github.io/ingress-nginx"
+
+    - name: Install ingress-nginx
+      kubernetes.core.helm:
+        name: ingress-nginx
+        chart_ref: ingress/ingress-nginx
+        release_namespace: ingress-nginx
+        create_namespace: true
+        values:
+          imagePullSecrets:
+            - name: docker-secret
+          controller:
+            extraArgs:
+              enable-ssl-passthrough: ""
+            autoscaling:
+              enabled: true
+              minReplicas: 1
+              maxReplicas: 4
+              targetCPUUtilizationPercentage: 80
+              targetMemoryUtilizationPercentage: 80
+            metrics:
+              enabled: true
+            podAnnotations:
+              "prometheus.io/scrape": true
+              "prometheus.io/port": "10254"
+          service:
+            loadBalancerIP: "{{ cluster.ingress_vip }}"
+        wait: true

@@ -1,0 +1,10 @@
+{% if service_is_headless is defined and service_is_headless %}
+clusterIP: None
+{% endif %}
+selector:
+  {{ service_selector }}
+ports:
+  - name: {{ port_name }}
+    port: {{ port_number }}
+    protocol: TCP
+    targetPort: {{ port_number }}

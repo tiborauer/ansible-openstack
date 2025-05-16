@@ -1,0 +1,26 @@
+- name: K3s service file
+  ansible.builtin.template:
+    src: "{{ service_template }}"
+    dest: /etc/systemd/system/k3s.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: res_service_file
+
+- name: Enable and start K3s service (first time)
+  when: ansible_facts.services['k3s.service'] is not defined or ansible_facts.services['k3s.service'].state != 'running'
+  ansible.builtin.systemd_service:
+    name: k3s
+    daemon_reload: true
+    state: started
+    enabled: true
+
+- name: Restart K3s service (maintenance)
+  when:
+    - ansible_facts.services['k3s.service'] is defined
+    - ansible_facts.services['k3s.service'].state == 'running'
+    - (res_serviceconfig is defined and res_serviceconfig.changed) or res_service_file.changed
+  ansible.builtin.systemd_service:
+    name: k3s
+    daemon_reload: true
+    state: restarted

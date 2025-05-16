@@ -1,0 +1,34 @@
+- name: Token from server
+  delegate_to: "{{ groups[cluster_name + '_control'][0] }}"
+  block:
+    - name: Wait for token
+      ansible.builtin.wait_for:
+        path: "{{ server.directory }}/server/token"
+
+    - name: "Copy token for {{ service_account.username }}"
+      block:
+        - name: User config directory
+          ansible.builtin.file:
+            path: "/home/{{ service_account.username }}/.rancher/k3s/server"
+            state: directory
+            owner: "{{ service_account.username }}"
+            group: "{{ service_account.username }}"
+
+        - name: Copy token to user config directory
+          ansible.builtin.copy:
+            src: "{{ server.directory }}/server/token"
+            dest: "/home/{{ service_account.username }}/.rancher/k3s/server/token"
+            owner: "{{ service_account.username }}"
+            group: "{{ service_account.username }}"
+            remote_src: true
+
+    - name: Store token for other nodes
+      block:
+        - name: Read token
+          ansible.builtin.slurp:
+            src: "{{ server.directory }}/server/token"
+          register: res_token
+
+        - name: Store token
+          ansible.builtin.set_fact:
+            k3s_token: "{{ res_token.content | b64decode | regex_replace('\n', '') }}"

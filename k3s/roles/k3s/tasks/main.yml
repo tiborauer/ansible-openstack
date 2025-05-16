@@ -1,0 +1,244 @@
+- name: Get k3s installed version
+  block:
+    - name: Query k3s
+      ansible.builtin.command: k3s --version
+      register: res_k3s
+      changed_when: false
+      ignore_errors: true
+
+    - name: Save k3s version
+      when: res_k3s.rc == 0
+      ansible.builtin.set_fact:
+        installed_k3s_version: "{{ res_k3s.stdout_lines[0].split(' ')[2] }}"
+
+- name: Install k3s
+  when: res_k3s.rc != 0 or installed_k3s_version is version(k3s_version, '<')
+  block:
+    - name: Download K3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io/
+        timeout: 120
+        dest: "{{ temporary_intallation_directory }}/k3s-install.sh"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install k3s
+      ansible.builtin.command: "{{ temporary_intallation_directory }}/k3s-install.sh --secrets-encryption"
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_SKIP_START: "true"
+      register: res_installk3s
+
+    - name: Add K3s autocomplete
+      ansible.builtin.lineinfile:
+        path: "/home/{{ service_account.username }}/.bashrc"
+        regexp: '\.\s+<\(k3s completion bash\)'
+        line: ". <(k3s completion bash)  # Added by k3s-ansible"
+
+- name: Report
+  when: res_installk3s is changed
+  block:
+    - name: Query k3s
+      ansible.builtin.command: k3s --version
+      register: res_k3s
+
+    - name: Report k3s version
+      when: res_k3s.rc == 0
+      ansible.builtin.debug:
+        msg: "K3s {{ res_k3s.stdout_lines[0].split(' ')[2] }} has just been installed -> restarting"
+
+    - name: Restart k3s services (upgrade)
+      when: installed_k3s_version is defined
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: restarted
+
+- name: Server
+  when: inventory_hostname == groups[cluster_name + '_control'][0]
+  block:
+    - include_tasks: deploy_server.yml
+      vars:
+        kubeconfig_file: /etc/rancher/k3s/k3s.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- meta: end_play
+
+- name: Other node(s)
+  when: inventory_hostname != groups[cluster_name + '_control'][0]
+  include_tasks: deploy_node.yml
+
+- name: Check nodes
+  when: inventory_hostname == groups[cluster_name + '_control'][0]
+  become: false
+  block:
+    - name: Wait for control nodes
+      kubernetes.core.k8s_info:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        kind: node
+        label_selectors:
+          - "node-role.kubernetes.io/control-plane=true"
+        wait: true
+        wait_condition:
+          type: Ready
+        wait_timeout: 120
+      register: res_nodes
+      failed_when: (res_nodes.resources | length) < (groups.control | length)
+
+    - name: Wait for worker nodes
+      kubernetes.core.k8s_info:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        kind: node
+        label_selectors:
+          - "node-role.kubernetes.io/control-plane!=true"
+        wait: true
+        wait_condition:
+          type: Ready
+        wait_timeout: 120
+      register: res_nodes
+      failed_when: (res_nodes.resources | length) < (groups.worker | length)
+
+- name: System-upgrade
+  when: inventory_hostname == groups[cluster_name + '_control'][0]
+  become: false
+  block:
+    - name: system-upgrade-controller
+      kubernetes.core.k8s:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        src: "{{ item }}"
+      loop:
+        - "https://github.com/rancher/system-upgrade-controller/releases/latest/download/system-upgrade-controller.yaml"
+        - "https://github.com/rancher/system-upgrade-controller/releases/latest/download/crd.yaml"
+
+    - ansible.builtin.include_role:
+        name: ../k3s/roles/k3s
+        tasks_from: docker_secret
+      vars:
+        kubeconfig_file: "/etc/rancher/k3s/k3s.yaml"
+        secret_namespace: system-upgrade # pragma: allowlist secret
+        secret_name: docker-secret # pragma: allowlist secret
+
+    - name: system-upgrade service account with docker sercet
+      kubernetes.core.k8s:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: system-upgrade
+            namespace: system-upgrade
+          imagePullSecrets:
+            - name: docker-secret
+
+    - name: system-upgrade plan for control nodes
+      kubernetes.core.k8s:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        definition:
+          apiVersion: upgrade.cattle.io/v1
+          kind: Plan
+          metadata:
+            name: control-plan
+            namespace: system-upgrade
+          spec:
+            concurrency: 1
+            cordon: true
+            nodeSelector:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: In
+                values:
+                - "true"
+            serviceAccountName: system-upgrade
+            upgrade:
+              image: rancher/k3s-upgrade
+            channel: https://update.k3s.io/v1-release/channels/stable
+
+    - name: system-upgrade plan for worker nodes
+      kubernetes.core.k8s:
+        kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+        definition:
+          apiVersion: upgrade.cattle.io/v1
+          kind: Plan
+          metadata:
+            name: worker-plan
+            namespace: system-upgrade
+          spec:
+            concurrency: 1
+            cordon: true
+            nodeSelector:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+            prepare:
+              args:
+              - prepare
+              - control-plan
+              image: rancher/k3s-upgrade
+            serviceAccountName: system-upgrade
+            upgrade:
+              image: rancher/k3s-upgrade
+            channel: https://update.k3s.io/v1-release/channels/stable
+
+- name: "Setup local kubeconfig for {{ service_account.username }}"
+  when: inventory_hostname == groups[cluster_name + '_control'][0]
+  become: false
+  block:
+    - name: "Kubeconfig file for {{ service_account.username }}"
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ kubeconfig }}"
+        remote_src: true
+
+    - name: "Set KUBECONFIG variable for {{ service_account.username }}"
+      ansible.builtin.lineinfile:
+        path: /home/{{ service_account.username }}/.bashrc
+        regexp: "export KUBECONFIG={{ kubeconfig }}"
+        line: "export KUBECONFIG={{ kubeconfig }} # Added by k3s-ansible"
+        state: present
+
+- name: Users (on non-service cluster)
+  when:
+    - cluster_name != 'services'
+    - users is defined
+    - inventory_hostname == groups[cluster_name + '_control'][0]
+  become: false
+  block:
+    - name: Default user
+      block:
+        - name: '"default-user" role'
+          ansible.builtin.k8s:
+            kubeconfig: "{{ kubeconfig }}"
+            definition:
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: Role
+              metadata:
+                namespace: default
+                name: default-user
+              rules:
+              - apiGroups: ["", "extensions", "apps"]
+                resources: ["deployments", "replicasets", "pods", "services", "configmaps", "secrets"]
+                verbs: ["*"]
+
+        - name: 'Bind "default-user" role to "default-users" group'
+          ansible.builtin.k8s:
+            kubeconfig: "{{ kubeconfig }}"
+            definition:
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: RoleBinding
+              metadata:
+                namespace: default
+                name: default-user
+              roleRef:
+                apiGroup: rbac.authorization.k8s.io
+                kind: Role
+                name: default-user
+              subjects:
+              - apiGroup: rbac.authorization.k8s.io
+                kind: Group
+                name: default-users
+
+    - ansible.builtin.include_tasks: add_user.yml
+      loop: "{{ users | map(attribute='username') }}"
+      loop_control:
+        loop_var: username

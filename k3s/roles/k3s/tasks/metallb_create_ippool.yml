@@ -1,0 +1,42 @@
+- name: "Existing AddressPool for {{ pool_name }}"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig_file | default(kubeconfig) }}"
+    api_version: metallb.io/v1beta1
+    kind: IPAddressPool
+    name: "{{ pool_name }}"
+    namespace: metallb-system
+  register: res_ippool
+
+- ansible.builtin.set_fact:
+    ip_addresses: []
+- name: 'IPs for "{{ pool_name }}"'
+  ansible.builtin.set_fact:
+    ip_addresses: "{{ ip_addresses + [item] }}"
+  when: not item in (res_ippool.resources[0].spec.addresses | default([]))
+  loop: "{{ pool_ips }}"
+
+- name: "AddressPool for {{ pool_name }}"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_file | default(kubeconfig) }}"
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: "{{ pool_name }}"
+        namespace: metallb-system
+      spec:
+        addresses: "{{ (res_ippool.resources[0].spec.addresses | default([])) + ip_addresses }}"
+        autoAssign: "{{ pool_autoassign is defined and pool_autoassign }}"
+
+- name: "L2Advertisement for {{ pool_name }}"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig_file | default(kubeconfig) }}"
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: "{{ pool_name }}"
+        namespace: metallb-system
+      spec:
+        ipAddressPools:
+          - "{{ pool_name }}"
