@@ -95,3 +95,10 @@ is using WSL.
       ```bash
       chmod 0600 /home/service/.ssh/id_rsa
       ```
+
+5. Setup Docker
+
+    ```bash
+    ansible-playbook utils/install-docker.yml
+    docker login -u <username>
+    ```
