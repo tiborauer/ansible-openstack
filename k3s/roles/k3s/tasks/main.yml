@@ -63,8 +63,6 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- meta: end_play
-
 - name: Other node(s)
   when: inventory_hostname != groups[cluster_name + '_control'][0]
   include_tasks: deploy_node.yml
@@ -84,7 +82,7 @@
           type: Ready
         wait_timeout: 120
       register: res_nodes
-      failed_when: (res_nodes.resources | length) < (groups.control | length)
+      failed_when: (res_nodes.resources | length) < (groups[cluster_name + '_control'] | length)
 
     - name: Wait for worker nodes
       kubernetes.core.k8s_info:
@@ -97,7 +95,7 @@
           type: Ready
         wait_timeout: 120
       register: res_nodes
-      failed_when: (res_nodes.resources | length) < (groups.worker | length)
+      failed_when: (res_nodes.resources | length) < (groups[cluster_name + '_worker'] | length)
 
 - name: System-upgrade
   when: inventory_hostname == groups[cluster_name + '_control'][0]
@@ -111,9 +109,7 @@
         - "https://github.com/rancher/system-upgrade-controller/releases/latest/download/system-upgrade-controller.yaml"
         - "https://github.com/rancher/system-upgrade-controller/releases/latest/download/crd.yaml"
 
-    - ansible.builtin.include_role:
-        name: ../k3s/roles/k3s
-        tasks_from: docker_secret
+    - ansible.builtin.include_tasks: docker_secret
       vars:
         kubeconfig_file: "/etc/rancher/k3s/k3s.yaml"
         secret_namespace: system-upgrade # pragma: allowlist secret
@@ -197,9 +193,9 @@
         line: "export KUBECONFIG={{ kubeconfig }} # Added by k3s-ansible"
         state: present
 
-- name: Users (on non-service cluster)
+- name: Users # (on non-service cluster)
   when:
-    - cluster_name != 'services'
+    #- cluster_name != 'services'
     - users is defined
     - inventory_hostname == groups[cluster_name + '_control'][0]
   become: false

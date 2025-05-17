@@ -1,0 +1,97 @@
+- name: "Check kubeconfig for {{ username }}"
+  when: inventory_hostname == groups[cluster_name + '_control'][0]
+  ansible.builtin.stat:
+    path: "{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml"
+  register: res_kubeconfig
+
+- name: Generate kubeconfig
+  when: (inventory_hostname == groups[cluster_name + '_control'][0]) and (not res_kubeconfig.stat.exists or ((kubeconfig_update is defined) and kubeconfig_update))
+  become: false
+  block:
+    - name: Folder for user kubeconfigs
+      ansible.builtin.file:
+        path: "{{ user_kubeconfigs.directory }}"
+        state: directory
+
+    - name: CSR
+      block:
+        - name: "Generate a private key for {{ username }}"
+          community.crypto.openssl_privatekey:
+            path: "{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_key.pem"
+            size: 2048
+            type: RSA
+            mode: 0644
+
+        - set_fact:
+            ssl_groups: "{{ (['default-users', username] + (k3s_groups | default([]))) | join('/O=') }}"
+
+        - name: "Create certificate signing request (CSR) for {{ username }}"
+          ansible.builtin.command: 'openssl req -new -key {{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_key.pem -out {{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_csr.pem -subj "/CN={{ username }}/O={{ ssl_groups }}"'
+
+        - ansible.builtin.slurp:
+            src: "{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_csr.pem"
+          register: res_csr
+
+        - name: Submit CSR
+          kubernetes.core.k8s:
+            kubeconfig: "{{ kubeconfig }}"
+            definition: |
+              apiVersion: certificates.k8s.io/v1
+              kind: CertificateSigningRequest
+              metadata:
+                name: {{ username }}
+              spec:
+                groups:
+                  - system:authenticated
+                request: {{ res_csr.content }}
+                signerName: kubernetes.io/kube-apiserver-client
+                expirationSeconds: {{ user_kubeconfigs.expiration * 365 * 24 * 3600 }}
+                usages:
+                  - client auth
+
+        - name: Approve CSR
+          ansible.builtin.command: "kubectl certificate approve {{ username }}"
+          environment:
+            KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Certificate
+      block:
+        - name: Retrieve certificate
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig }}"
+            api_version: certificates.k8s.io/v1
+            kind: certificatesigningrequests
+            name: "{{ username }}"
+          register: res_cert
+
+        - name: Save certificate
+          ansible.builtin.copy:
+            content: "{{ res_cert.resources[0].status.certificate | b64decode }}"
+            dest: "{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_crt.pem"
+            mode: 0644
+
+    - name: "Kubeconfig for {{ username}}"
+      become: true
+      ansible.builtin.shell: |
+        kubectl config set-cluster {{ cluster.name }} --server=https://{{ cluster.apiserver_vip }}:{{ cluster.apiserver_port }} --certificate-authority=/var/lib/rancher/k3s/server/tls/serving-kube-apiserver.crt --embed-certs=true --kubeconfig={{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml
+        kubectl config set-credentials {{ username }} --client-key="{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_key.pem" --client-certificate="{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}_crt.pem" --embed-certs=true --kubeconfig={{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml
+        kubectl config set-context {{ username }}@{{ cluster.name }} --cluster={{ cluster.name }} --user={{ username }} --kubeconfig={{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml
+        kubectl config use-context {{ username }}@{{ cluster.name }} --kubeconfig={{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Permissions for kubeconfig
+      become: true
+      ansible.builtin.file:
+        path: "{{ user_kubeconfigs.directory }}/kubeconfig_{{ username }}.yml"
+        owner: "{{ service_account.username }}"
+        group: "{{ service_account.username }}"
+        mode: 0644
+
+    - name: Cleanup CSR
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: CertificateSigningRequest
+        namespace: default
+        name: "{{ username }}"
+        state: absent
