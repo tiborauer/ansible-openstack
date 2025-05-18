@@ -23,3 +23,33 @@
 
     - ansible.builtin.include_role:
         name: longhorn
+
+    - name: Portainer
+      when: inventory_hostname == groups.services_control[0]
+      become: false
+      block:
+        - ansible.builtin.include_role:
+            name: k3s
+            tasks_from: docker_secret.yml
+          vars:
+            secret_namespace: portainer
+
+        - name: Add Portainer repo
+          kubernetes.core.helm_repository:
+            name: portainer
+            repo_url: "https://portainer.github.io/k8s"
+
+        - name: Install Portainer # MUST match https://github.com
+          kubernetes.core.helm:
+            kubeconfig: "{{ kubeconfig }}"
+            name: portainer
+            chart_ref: portainer/portainer
+            chart_version: 
+            release_namespace: portainer
+            create_namespace: true
+            values:
+              imagePullSecrets:
+                - name: docker-secret
+              persistence:
+                size: "1Gi"
+            wait: true
