@@ -1,0 +1,14 @@
+vm:
+  prefix: akk
+  tag: k3s
+
+service_account:
+  username: service
+
+kubeconfig: "/home/{{ service_account.username }}/kubeconfig_{{ vm.tag }}.yml"
+
+temporary_intallation_directory: /opt/install
+
+longhorn:
+  default_class_replicacount: 2
+  crypto_key: akombakom
