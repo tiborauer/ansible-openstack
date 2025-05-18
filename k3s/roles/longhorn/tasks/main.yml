@@ -28,7 +28,7 @@
   block:
     - name: Get script for Longhorn sanity check
       ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/longhorn/longhorn/refs/tags/v1.8.1/scripts/environment_check.sh" # version MUST correspond to that in the iondri-k3s-argocd repo
+        url: "https://raw.githubusercontent.com/longhorn/longhorn/refs/tags/v{{ longhorn.version }}/scripts/environment_check.sh" # version MUST correspond to that in the iondri-k3s-argocd repo
         dest: "{{ temporary_intallation_directory }}/longhorn_environment_check.sh"
         mode: 0774
 
@@ -66,6 +66,7 @@
         kubeconfig: "{{ kubeconfig }}"
         name: longhorn
         chart_ref: longhorn/longhorn
+        chart_version: "{{ longhorn.version }}"
         release_namespace: longhorn-system
         create_namespace: true
         values:

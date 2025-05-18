@@ -10,5 +10,6 @@ kubeconfig: "/home/{{ service_account.username }}/kubeconfig_{{ vm.tag }}.yml"
 temporary_intallation_directory: /opt/install
 
 longhorn:
+  version: 1.8.0  
   default_class_replicacount: 2
   crypto_key: akombakom

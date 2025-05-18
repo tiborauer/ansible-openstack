@@ -48,6 +48,7 @@ calico_typhametrics_port: 9094
 metallb_version: "v0.14.9"
 
 longhorn:
+  version: 1.8.0  
   default_class_replicacount: 2
   crypto_key: !vault |
     $ANSIBLE_VAULT;1.2;AES256;akk
