@@ -248,7 +248,7 @@
 
     - name: Projects
       tags: projects
-      block:
+      block: 
         - name: Provision volume for projects
           connection: local
           become: false

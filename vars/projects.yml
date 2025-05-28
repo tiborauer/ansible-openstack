@@ -3,3 +3,4 @@ projects:
     members:
       - tibor
       - bela
+      - kitti
