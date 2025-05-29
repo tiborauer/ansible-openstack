@@ -20,3 +20,7 @@ all:
             - all-open-local
             - vnc
           vm_state: present
+
+        akk-mri-01:
+          ansible_host: akk-mri-01
+          vm_role: physical
