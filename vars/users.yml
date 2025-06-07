@@ -385,7 +385,7 @@ users:
 
     uid: 10003
     desktop: 13
-    sudoer: false
+    sudoer: true
 
     name: "Kitti Ban"
 
